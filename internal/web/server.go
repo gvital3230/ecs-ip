@@ -1,4 +1,4 @@
-package server
+package web
 
 import (
 	"time"
@@ -11,7 +11,7 @@ type FiberServer struct {
 	*fiber.App
 }
 
-func New() *FiberServer {
+func NewServer() *FiberServer {
 	server := &FiberServer{
 		App: fiber.New(fiber.Config{
 			ServerHeader: "ecs-ip",

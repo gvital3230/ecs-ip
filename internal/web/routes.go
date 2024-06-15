@@ -1,7 +1,6 @@
-package server
+package web
 
 import (
-	"ecs-ip/cmd/web"
 	"ecs-ip/internal/aws"
 
 	"github.com/a-h/templ"
@@ -15,7 +14,7 @@ func (s *FiberServer) RegisterFiberRoutes() {
 
 func HomePageHandler(c *fiber.Ctx) error {
 	res := aws.NewStore().Clusters()
-	return Render(c, web.HomePage(res))
+	return Render(c, HomePage(res))
 }
 
 func Render(c *fiber.Ctx, component templ.Component, options ...func(*templ.ComponentHandler)) error {

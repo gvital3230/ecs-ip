@@ -31,48 +31,6 @@ func NewStore() *Store {
 	}
 }
 
-func (store *Store) MockClusters() []Cluster {
-	res := []Cluster{
-		{
-			Arn:  "arn:aws:ecs:us-west-2:123456789012:cluster/default",
-			Name: "default",
-			Services: []Service{
-				{
-					Name:       "web",
-					Image:      "nginx:latest",
-					PrivateIPs: []string{"127.0.0.1"},
-					PublicIPs:  []string{"8.9.8.8"},
-				},
-				{
-					Name:       "db",
-					Image:      "nginx:latest",
-					PrivateIPs: []string{"127.0.0.1"},
-					PublicIPs:  []string{"8.9.8.8"},
-				},
-			},
-		},
-		{
-			Arn:  "arn:aws:ecs:us-west-2:123456789012:cluster/default",
-			Name: "prod",
-			Services: []Service{
-				{
-					Name:       "web",
-					Image:      "nginx:latest",
-					PrivateIPs: []string{"127.0.0.1"},
-					PublicIPs:  []string{"8.9.8.8"},
-				},
-				{
-					Name:       "db",
-					Image:      "nginx:latest",
-					PrivateIPs: []string{"127.0.0.1"},
-					PublicIPs:  []string{"8.9.8.8"},
-				},
-			},
-		},
-	}
-	return res
-}
-
 func (store *Store) Clusters() []Cluster {
 	// get list of GetClusters Arn
 	res := []Cluster{}
