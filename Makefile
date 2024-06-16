@@ -12,11 +12,6 @@ build:
 run:
 	@go run cmd/main.go
 
-# Test the application
-test:
-	@echo "Testing..."
-	@go test ./tests -v
-
 # Clean the binary
 clean:
 	@echo "Cleaning..."
@@ -39,4 +34,4 @@ watch:
 	    fi; \
 	fi
 
-.PHONY: all build run test clean
+.PHONY: all build run clean
