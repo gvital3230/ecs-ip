@@ -10,9 +10,12 @@ import (
 )
 
 func main() {
-	server := web.NewServer()
+	password := os.Getenv("ADMIN_PASSWORD")
+	if password == "" {
+		panic("ADMIN_PASSWORD is not set")
+	}
 
-	server.RegisterFiberRoutes()
+	server := web.NewServer(password)
 
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
 	err := server.Listen(fmt.Sprintf("127.0.0.1:%d", port))

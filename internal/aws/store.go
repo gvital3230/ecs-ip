@@ -33,92 +33,95 @@ func NewStore() *Store {
 }
 
 func (store *Store) Clusters() []Cluster {
-	// get list of GetClusters Arn
+	// get list of Clusters ARNs
 	res := []Cluster{}
-	clusterList, err := store.ecsClient.ListClusters(context.TODO(), &ecs.ListClustersInput{})
+	list, err := store.ecsClient.ListClusters(context.TODO(), &ecs.ListClustersInput{})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// get list of full clusters data
-	clusterDescriptions, err := store.ecsClient.DescribeClusters(context.TODO(), &ecs.DescribeClustersInput{
-		Clusters: clusterList.ClusterArns,
+	// get list of full details data, ignore pagination for now, we have less than 100 details
+	details, err := store.ecsClient.DescribeClusters(context.TODO(), &ecs.DescribeClustersInput{
+		Clusters: list.ClusterArns,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// set up orchestrator primitives to fetch cluster details concurrently
 	var wg sync.WaitGroup
-	clustersChan := make(chan Cluster, len(clusterDescriptions.Clusters))
+	ch := make(chan Cluster, len(details.Clusters))
 
 	// fetch cluster details concurrently
-	for _, clusterDescription := range clusterDescriptions.Clusters {
+	for _, cluster := range details.Clusters {
 		wg.Add(1)
-		go store.fetchClusterDetails(clusterDescription, &wg, clustersChan)
+		go store.clusterDetails(cluster, &wg, ch)
 	}
 
 	// close channel when all clusters are fetched
 	go func() {
 		wg.Wait()
-		close(clustersChan)
+		close(ch)
 	}()
 
 	// collect clusters from channel
-	for cl := range clustersChan {
+	for cl := range ch {
 		res = append(res, cl)
 	}
 
 	return res
 }
 
-func (store *Store) fetchClusterDetails(cl ecsTypes.Cluster, wg *sync.WaitGroup, ch chan Cluster) {
+func (store *Store) clusterDetails(cl ecsTypes.Cluster, wg *sync.WaitGroup, ch chan Cluster) {
 	defer wg.Done()
 
-	res := Cluster{
-		Arn:  *cl.ClusterArn,
-		Name: *cl.ClusterName,
+	ch <- Cluster{
+		Arn:      *cl.ClusterArn,
+		Name:     *cl.ClusterName,
+		Services: store.services(cl),
 	}
-
-	res.Services = store.services(cl)
-
-	ch <- res
 }
 
 func (store *Store) services(c ecsTypes.Cluster) []Service {
 	var res []Service
 
-	servicesList, err := store.ecsClient.ListServices(context.TODO(), &ecs.ListServicesInput{
+	// get list of services Arn in the cluster
+	list, err := store.ecsClient.ListServices(context.TODO(), &ecs.ListServicesInput{
 		Cluster: c.ClusterArn,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	if len(servicesList.ServiceArns) == 0 {
+	if len(list.ServiceArns) == 0 {
 		return res
 	}
 
-	servicesDescriptions, err := store.ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
+	// get full services details, ignore pagination for now, we have less than 100 services
+	details, err := store.ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
 		Cluster:  c.ClusterArn,
-		Services: servicesList.ServiceArns,
+		Services: list.ServiceArns,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// set up orchestrator primitives to fetch service details concurrently
 	var wg sync.WaitGroup
-	ch := make(chan Service, len(servicesDescriptions.Services))
+	ch := make(chan Service, len(details.Services))
 
-	for _, serviceDescription := range servicesDescriptions.Services {
+	for _, service := range details.Services {
 		wg.Add(1)
-		go store.fetchServiceDetails(serviceDescription, &wg, ch)
+		// fetch service details concurrently
+		go store.serviceDetails(service, &wg, ch)
 	}
 
+	// close channel when all services are fetched
 	go func() {
 		wg.Wait()
 		close(ch)
 	}()
 
+	// collect services from channel
 	for service := range ch {
 		res = append(res, service)
 	}
@@ -126,15 +129,15 @@ func (store *Store) services(c ecsTypes.Cluster) []Service {
 	return res
 }
 
-func (s *Store) fetchServiceDetails(service ecsTypes.Service, wg *sync.WaitGroup, ch chan Service) {
+func (store *Store) serviceDetails(service ecsTypes.Service, wg *sync.WaitGroup, ch chan Service) {
 	defer wg.Done()
-	instances, err := s.serviceInstances(service.ClusterArn, service)
+	instances, err := store.serviceInstances(service)
 	if err != nil {
 		log.Fatal(err)
 	}
 	ch <- Service{
 		Name:  *service.ServiceName,
-		Image: s.appImage(service),
+		Image: store.appImage(service),
 		PrivateIPs: lo.Map(instances, func(instance ec2Types.Instance, _ int) string {
 			return *instance.PrivateIpAddress
 		}),
@@ -144,43 +147,43 @@ func (s *Store) fetchServiceDetails(service ecsTypes.Service, wg *sync.WaitGroup
 	}
 }
 
-func (s *Store) appImage(service ecsTypes.Service) string {
-	td := service.TaskDefinition
-
-	taskDefinition, err := s.ecsClient.DescribeTaskDefinition(context.TODO(), &ecs.DescribeTaskDefinitionInput{
-		TaskDefinition: td,
+func (store *Store) appImage(service ecsTypes.Service) string {
+	taskDefinition, err := store.ecsClient.DescribeTaskDefinition(context.TODO(), &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: service.TaskDefinition,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// we assume that there is only one container in the task definition or at least the first one is the one we are interested in
 	return *taskDefinition.TaskDefinition.ContainerDefinitions[0].Image
 }
 
-func (s *Store) serviceInstances(clusterArn *string, service ecsTypes.Service) ([]ec2Types.Instance, error) {
+func (store *Store) serviceInstances(service ecsTypes.Service) ([]ec2Types.Instance, error) {
 	// List the tasks running in the service
-	listTasksOutput, err := s.ecsClient.ListTasks(context.TODO(), &ecs.ListTasksInput{
-		Cluster:     clusterArn,
+	taskList, err := store.ecsClient.ListTasks(context.TODO(), &ecs.ListTasksInput{
+		Cluster:     service.ClusterArn,
 		ServiceName: service.ServiceName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tasks: %w", err)
 	}
-	if len(listTasksOutput.TaskArns) == 0 {
+	if len(taskList.TaskArns) == 0 {
 		log.Println("No tasks found")
 		return nil, nil
 	}
 
 	// Describe the tasks to get the container instances
-	describeTasksOutput, err := s.ecsClient.DescribeTasks(context.TODO(), &ecs.DescribeTasksInput{
-		Cluster: clusterArn,
-		Tasks:   listTasksOutput.TaskArns,
+	taskDetails, err := store.ecsClient.DescribeTasks(context.TODO(), &ecs.DescribeTasksInput{
+		Cluster: service.ClusterArn,
+		Tasks:   taskList.TaskArns,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to describe tasks: %w", err)
+		return nil, fmt.Errorf("failed to describe tasks for cluster %v: %w", *service.ClusterArn, err)
 	}
 
 	var containerInstanceArns []string
-	for _, task := range describeTasksOutput.Tasks {
+	for _, task := range taskDetails.Tasks {
 		if task.ContainerInstanceArn != nil {
 			containerInstanceArns = append(containerInstanceArns, *task.ContainerInstanceArn)
 		}
@@ -192,8 +195,8 @@ func (s *Store) serviceInstances(clusterArn *string, service ecsTypes.Service) (
 	}
 
 	// Describe container instances to get the EC2 instance IDs
-	describeContainerInstancesOutput, err := s.ecsClient.DescribeContainerInstances(context.TODO(), &ecs.DescribeContainerInstancesInput{
-		Cluster:            clusterArn,
+	describeContainerInstancesOutput, err := store.ecsClient.DescribeContainerInstances(context.TODO(), &ecs.DescribeContainerInstancesInput{
+		Cluster:            service.ClusterArn,
 		ContainerInstances: containerInstanceArns,
 	})
 	if err != nil {
@@ -213,7 +216,7 @@ func (s *Store) serviceInstances(clusterArn *string, service ecsTypes.Service) (
 	}
 
 	// Describe EC2 instances to get their IP addresses
-	describeInstancesOutput, err := s.ec2Client.DescribeInstances(context.TODO(), &ec2.DescribeInstancesInput{
+	describeInstancesOutput, err := store.ec2Client.DescribeInstances(context.TODO(), &ec2.DescribeInstancesInput{
 		InstanceIds: ec2InstanceIds,
 	})
 	if err != nil {
