@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/samber/lo"
 
@@ -47,53 +48,100 @@ func (store *Store) Clusters() []Cluster {
 		log.Fatal(err)
 	}
 
+	var wg sync.WaitGroup
+	clustersChan := make(chan Cluster, len(clusterDescriptions.Clusters))
+
+	// fetch cluster details concurrently
 	for _, clusterDescription := range clusterDescriptions.Clusters {
-		cl := Cluster{
-			Arn:  *clusterDescription.ClusterArn,
-			Name: *clusterDescription.ClusterName,
-		}
-		cl.Services = store.services(clusterDescription)
+		wg.Add(1)
+		go store.fetchClusterDetails(clusterDescription, &wg, clustersChan)
+	}
+
+	// close channel when all clusters are fetched
+	go func() {
+		wg.Wait()
+		close(clustersChan)
+	}()
+
+	// collect clusters from channel
+	for cl := range clustersChan {
 		res = append(res, cl)
 	}
+
 	return res
 }
 
-func (s *Store) services(c ecsTypes.Cluster) []Service {
+func (store *Store) fetchClusterDetails(cl ecsTypes.Cluster, wg *sync.WaitGroup, ch chan Cluster) {
+	defer wg.Done()
+
+	res := Cluster{
+		Arn:  *cl.ClusterArn,
+		Name: *cl.ClusterName,
+	}
+
+	res.Services = store.services(cl)
+
+	ch <- res
+}
+
+func (store *Store) services(c ecsTypes.Cluster) []Service {
 	var res []Service
 
-	servicesList, err := s.ecsClient.ListServices(context.TODO(), &ecs.ListServicesInput{
+	servicesList, err := store.ecsClient.ListServices(context.TODO(), &ecs.ListServicesInput{
 		Cluster: c.ClusterArn,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	for _, sArn := range servicesList.ServiceArns {
-		servicesDescriptions, _ := s.ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
-			Cluster:  c.ClusterArn,
-			Services: []string{sArn},
-		})
-		for _, serviceDescription := range servicesDescriptions.Services {
-
-			instances, err := s.serviceInstances(c.ClusterArn, serviceDescription)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			s := Service{
-				Name:  *serviceDescription.ServiceName,
-				Image: s.appImage(serviceDescription),
-				PrivateIPs: lo.Map(instances, func(instance ec2Types.Instance, _ int) string {
-					return *instance.PrivateIpAddress
-				}),
-				PublicIPs: lo.Map(instances, func(instance ec2Types.Instance, _ int) string {
-					return *instance.PublicIpAddress
-				}),
-			}
-			res = append(res, s)
-		}
+	if len(servicesList.ServiceArns) == 0 {
+		return res
 	}
+
+	servicesDescriptions, err := store.ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
+		Cluster:  c.ClusterArn,
+		Services: servicesList.ServiceArns,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	ch := make(chan Service, len(servicesDescriptions.Services))
+
+	for _, serviceDescription := range servicesDescriptions.Services {
+		wg.Add(1)
+		go store.fetchServiceDetails(serviceDescription, &wg, ch)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	for service := range ch {
+		res = append(res, service)
+	}
+
 	return res
+}
+
+func (s *Store) fetchServiceDetails(service ecsTypes.Service, wg *sync.WaitGroup, ch chan Service) {
+	defer wg.Done()
+	instances, err := s.serviceInstances(service.ClusterArn, service)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ch <- Service{
+		Name:  *service.ServiceName,
+		Image: s.appImage(service),
+		PrivateIPs: lo.Map(instances, func(instance ec2Types.Instance, _ int) string {
+			return *instance.PrivateIpAddress
+		}),
+		PublicIPs: lo.Map(instances, func(instance ec2Types.Instance, _ int) string {
+			return *instance.PublicIpAddress
+		}),
+	}
 }
 
 func (s *Store) appImage(service ecsTypes.Service) string {
