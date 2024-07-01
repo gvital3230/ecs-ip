@@ -7,7 +7,7 @@ env:
 
 builds:
 - binary: "{{ .ProjectName }}"
-  main: ./cmd/api
+  main: ./cmd
   goos:
   - darwin
   - linux

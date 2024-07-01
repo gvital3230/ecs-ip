@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/samber/lo"
@@ -20,8 +22,8 @@ type Store struct {
 	ec2Client *ec2.Client
 }
 
-func NewStore() *Store {
-	cfg, err := config.LoadDefaultConfig(context.TODO())
+func NewStore(region string) *Store {
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -123,10 +125,62 @@ func (store *Store) services(c ecsTypes.Cluster) []Service {
 
 	// collect services from channel
 	for service := range ch {
-		res = append(res, service)
+		res = append(res, extractMetadata(service))
 	}
 
 	return res
+}
+
+func extractMetadata(service Service) Service {
+	// try to find labels in the image name
+	parts := strings.Split(service.Image, ":")
+	if len(parts) != 0 {
+		service.Version = parts[1]
+	}
+
+	// then take remaining part of the image name and try to extract some metadata
+	parts = strings.Split(parts[0], "/")
+
+	if len(parts) != 0 {
+		image := parts[len(parts)-1]
+		remaining := ""
+		// remove non meaminful prefixes
+		_, remaining = findAndCut(image, []string{"ptah"})
+
+		// find known env names
+		knownEnvs := []string{"dev2", "dev", "development", "stage", "staging", "prod", "ci"}
+		service.Env, remaining = findAndCut(remaining, knownEnvs)
+		if service.Env == "" {
+			service.Env, _ = findAndCut(service.Version, knownEnvs)
+		}
+
+		service.App, remaining = findAndCut(remaining, []string{"wp-multisite", "wl-widgets", "social-auth", "wp-wl-elementor", "wl-messenger", "wl-fitbuilder", "wl-explorer"})
+		service.Component = strings.Trim(remaining, "-")
+	}
+	return service
+}
+
+func findAndCut(input string, values []string) (string, string) {
+	for _, value := range values {
+		// Create a regex pattern to match the value as a whole word
+		pattern := fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(value))
+		re := regexp.MustCompile(pattern)
+
+		if re.FindStringIndex(input) != nil {
+			// Remove all occurrences of the found value as a whole word
+			cutString := re.ReplaceAllString(input, "")
+			return value, cutString
+		}
+	}
+	return "", input
+	// for _, value := range values {
+	// 	if index := strings.Index(input, value); index != -1 {
+	// 		// Remove all occurrences of the found value
+	// 		cutString := strings.ReplaceAll(input, value, "")
+	// 		return value, cutString
+	// 	}
+	// }
+	// return "", input
 }
 
 func (store *Store) serviceDetails(service ecsTypes.Service, wg *sync.WaitGroup, ch chan Service) {
