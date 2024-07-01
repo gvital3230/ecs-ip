@@ -2,6 +2,8 @@ package web
 
 import (
 	"ecs-ip/internal/aws"
+	"log"
+	"slices"
 	"time"
 
 	"github.com/a-h/templ"
@@ -40,11 +42,28 @@ func NewServer(password string) *FiberServer {
 	}))
 
 	server.Get("/", func(c *fiber.Ctx) error {
-		res := aws.NewStore().Clusters()
-		return Render(c, HomePage(res))
+		clusters := aws.NewStore().Clusters()
+		selectedApp := c.Query("app")
+		log.Println("selectedApp: ", selectedApp)
+
+		return Render(c, HomePage(clusters, selectedApp))
 	})
 
 	return server
+}
+
+func appSlugs(clusters []aws.Cluster) []string {
+	res := []string{}
+	for _, cluster := range clusters {
+		for _, service := range cluster.Services {
+			if service.App != "" {
+				if !slices.Contains(res, service.App) {
+					res = append(res, service.App)
+				}
+			}
+		}
+	}
+	return res
 }
 
 // helper function which allows to render templ component and wrap in to fiber handler

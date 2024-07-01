@@ -9,6 +9,11 @@ type Cluster struct {
 type Service struct {
 	Name       string
 	Image      string
+	App        string
+	Env        string
+	Component  string
+	Container  string
+	Version    string
 	PrivateIPs []string
 	PublicIPs  []string
 }
