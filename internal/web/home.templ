@@ -1,37 +1,55 @@
 package web
 
-import "ecs-ip/internal/aws"
-import "strconv"
-import "strings"
+import (
+	"ecs-ip/internal/aws"
+	"strconv"
+	"strings"
+	"fmt"
+)
 
-templ HomePage(clusters []aws.Cluster) {
+templ HomePage(clusters []aws.Cluster, apps []string, selectedApp string) {
 	@Base() {
-		for _, cluster := range clusters {
-			@_cluster(cluster)
-		}
+		<ul class="nav nav-pills p-3">
+			<li class="nav-item">
+				<a class="nav-link" href="/">All</a>
+			</li>
+			for _, app := range apps {
+				<li class="nav-item">
+					<a class={ "nav-link",templ.KV("active", selectedApp == app) } href={ templ.URL(fmt.Sprintf("/?app=%s", app)) }>{ app }</a>
+				</li>
+			}
+		</ul>
+		<table class="table table-bordered table-hover">
+			<thead>
+				<tr>
+					<th scope="col">#</th>
+					<th scope="col">Cluster</th>
+					<th scope="col">App</th>
+					<th scope="col">Env</th>
+					<th scope="col">Component</th>
+					<th scope="col">Container</th>
+					<th scope="col">Public IP</th>
+					<th scope="col">Private IP</th>
+					<th scope="col">Version</th>
+					<th scope="col">Image</th>
+				</tr>
+			</thead>
+			for i, cluster := range clusters {
+				for j, service := range cluster.Services {
+					<tr>
+						<th scope="row">{ strconv.Itoa(i+1+j+1) }</th>
+						<td>{ cluster.Name }</td>
+						<td>{ service.App }</td>
+						<td>{ service.Env }</td>
+						<td>{ service.Component }</td>
+						<td>{ service.Container }</td>
+						<td>{ strings.Join(service.PublicIPs, ", ") }</td>
+						<td>{ strings.Join(service.PrivateIPs, ", ") }</td>
+						<td>{ service.Version }</td>
+						<td>{ service.Image }</td>
+					</tr>
+				}
+			}
+		</table>
 	}
-}
-
-templ _cluster(cluster aws.Cluster) {
-	<h3>{ cluster.Name }</h3>
-	<table class="table table-bordered table-hover">
-		<thead>
-			<tr>
-				<th scope="col">#</th>
-				<th scope="col">Service</th>
-				<th scope="col">Image</th>
-				<th scope="col">Public IP</th>
-				<th scope="col">Private IP</th>
-			</tr>
-		</thead>
-		for i, service := range cluster.Services {
-			<tr>
-				<th scope="row">{ strconv.Itoa(i+1) }</th>
-				<td>{ service.Name }</td>
-				<td>{ service.Image }</td>
-				<td>{ strings.Join(service.PublicIPs, ", ") }</td>
-				<td>{ strings.Join(service.PrivateIPs, ", ") }</td>
-			</tr>
-		}
-	</table>
 }

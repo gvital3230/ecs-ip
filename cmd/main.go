@@ -15,10 +15,12 @@ func main() {
 		panic("ADMIN_PASSWORD is not set")
 	}
 
-	server := web.NewServer(password)
+	region := os.Getenv("REGION")
+	server := web.NewServer(region, password)
 
+	host := os.Getenv("HOST")
 	port, _ := strconv.Atoi(os.Getenv("PORT"))
-	err := server.Listen(fmt.Sprintf("127.0.0.1:%d", port))
+	err := server.Listen(fmt.Sprintf("%v:%d", host, port))
 	if err != nil {
 		panic(fmt.Sprintf("cannot start server: %s", err))
 	}

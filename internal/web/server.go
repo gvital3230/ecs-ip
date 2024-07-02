@@ -2,20 +2,20 @@ package web
 
 import (
 	"ecs-ip/internal/aws"
-	"time"
+	"slices"
+	"sort"
 
 	"github.com/a-h/templ"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2/middleware/basicauth"
-	"github.com/gofiber/fiber/v2/middleware/cache"
 )
 
 type FiberServer struct {
 	*fiber.App
 }
 
-func NewServer(password string) *FiberServer {
+func NewServer(region string, password string) *FiberServer {
 	server := &FiberServer{
 		App: fiber.New(fiber.Config{
 			ServerHeader: "ecs-ip",
@@ -30,21 +30,49 @@ func NewServer(password string) *FiberServer {
 		},
 	}))
 
-	// cache results for 5 minutes
-	server.Use(cache.New(cache.Config{
-		Next: func(c *fiber.Ctx) bool {
-			return c.Query("noCache") == "true"
-		},
-		Expiration:   5 * time.Minute,
-		CacheControl: true,
-	}))
-
 	server.Get("/", func(c *fiber.Ctx) error {
-		res := aws.NewStore().Clusters()
-		return Render(c, HomePage(res))
+		clusters := aws.NewStore(region).Clusters()
+		selectedApp := c.Query("app")
+
+		return Render(c, HomePage(filteredByApp(clusters, selectedApp), appSlugs(clusters), selectedApp))
 	})
 
 	return server
+}
+
+func appSlugs(clusters []aws.Cluster) []string {
+	res := []string{}
+	for _, cluster := range clusters {
+		for _, service := range cluster.Services {
+			if service.App != "" {
+				if !slices.Contains(res, service.App) {
+					res = append(res, service.App)
+				}
+			}
+		}
+	}
+	sort.Strings(res)
+	return res
+}
+
+func filteredByApp(clusters []aws.Cluster, app string) []aws.Cluster {
+	if app == "" {
+		return clusters
+	}
+	res := []aws.Cluster{}
+	for _, cluster := range clusters {
+		services := []aws.Service{}
+		for _, service := range cluster.Services {
+			if service.App == app {
+				services = append(services, service)
+			}
+		}
+		if len(services) > 0 {
+			cluster.Services = services
+			res = append(res, cluster)
+		}
+	}
+	return res
 }
 
 // helper function which allows to render templ component and wrap in to fiber handler
