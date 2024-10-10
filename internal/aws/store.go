@@ -148,7 +148,7 @@ func extractMetadata(service Service) Service {
 		_, remaining = findAndCut(image, []string{"ptah"})
 
 		// find known env names
-		knownEnvs := []string{"dev2", "dev", "development", "stage", "staging", "prod", "ci"}
+		knownEnvs := []string{"dev2", "dev", "development", "stage", "staging", "prod", "ci", "main"}
 		service.Env, remaining = findAndCut(remaining, knownEnvs)
 		if service.Env == "" {
 			service.Env, _ = findAndCut(service.Version, knownEnvs)
@@ -163,7 +163,7 @@ func extractMetadata(service Service) Service {
 func findAndCut(input string, values []string) (string, string) {
 	for _, value := range values {
 		// Create a regex pattern to match the value as a whole word
-		pattern := fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(value))
+		pattern := fmt.Sprintf(`\b%s(\b|\d)`, regexp.QuoteMeta(value))
 		re := regexp.MustCompile(pattern)
 
 		if re.FindStringIndex(input) != nil {

@@ -16,6 +16,7 @@ func main() {
 	}
 
 	region := os.Getenv("REGION")
+	fmt.Printf("region is %v", region)
 	server := web.NewServer(region, password)
 
 	host := os.Getenv("HOST")
