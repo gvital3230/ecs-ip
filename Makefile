@@ -6,7 +6,7 @@ all: build
 build:
 	@echo "Building..."
 	@templ generate
-	@go build -o main cmd/main.go
+	@env GOOS=linux GOARCH=amd64 go build -o ecs-ip cmd/main.go
 
 # Run the application
 run:
@@ -15,7 +15,7 @@ run:
 # Clean the binary
 clean:
 	@echo "Cleaning..."
-	@rm -f main
+	@rm -f ecs-ip
 
 # Live Reload
 watch:

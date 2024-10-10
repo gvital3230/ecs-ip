@@ -2,7 +2,6 @@ package web
 
 import (
 	"ecs-ip/internal/aws"
-	"strconv"
 	"strings"
 	"fmt"
 )
@@ -22,7 +21,6 @@ templ HomePage(clusters []aws.Cluster, apps []string, selectedApp string) {
 		<table class="table table-bordered table-hover">
 			<thead>
 				<tr>
-					<th scope="col">#</th>
 					<th scope="col">Cluster</th>
 					<th scope="col">App</th>
 					<th scope="col">Env</th>
@@ -34,10 +32,9 @@ templ HomePage(clusters []aws.Cluster, apps []string, selectedApp string) {
 					<th scope="col">Image</th>
 				</tr>
 			</thead>
-			for i, cluster := range clusters {
-				for j, service := range cluster.Services {
+			for _, cluster := range clusters {
+				for _, service := range cluster.Services {
 					<tr>
-						<th scope="row">{ strconv.Itoa(i+1+j+1) }</th>
 						<td>{ cluster.Name }</td>
 						<td>{ service.App }</td>
 						<td>{ service.Env }</td>

@@ -86,10 +86,11 @@ func (store *Store) clusterDetails(cl ecsTypes.Cluster, wg *sync.WaitGroup, ch c
 
 func (store *Store) services(c ecsTypes.Cluster) []Service {
 	var res []Service
-
+	var maxResults int32 = 100
 	// get list of services Arn in the cluster
 	list, err := store.ecsClient.ListServices(context.TODO(), &ecs.ListServicesInput{
-		Cluster: c.ClusterArn,
+		Cluster:    c.ClusterArn,
+		MaxResults: &maxResults,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -98,20 +99,22 @@ func (store *Store) services(c ecsTypes.Cluster) []Service {
 		return res
 	}
 
-	// get full services details, ignore pagination for now, we have less than 100 services
-	details, err := store.ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
-		Cluster:  c.ClusterArn,
-		Services: list.ServiceArns,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	// set up orchestrator primitives to fetch service details concurrently
 	var wg sync.WaitGroup
-	ch := make(chan Service, len(details.Services))
+	ch := make(chan Service, len(list.ServiceArns))
 
-	for _, service := range details.Services {
+	for _, serviceArn := range list.ServiceArns {
+		// @todo: add pagination for DescribeServices
+		details, err := store.ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
+			Cluster:  c.ClusterArn,
+			Services: []string{serviceArn},
+		})
+		if err != nil {
+			log.Fatal(err)
+			continue
+		}
+		service := details.Services[0]
+
 		wg.Add(1)
 		// fetch service details concurrently
 		go store.serviceDetails(service, &wg, ch)
