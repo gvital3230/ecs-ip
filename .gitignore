@@ -26,4 +26,4 @@ tmp/
 .env
 
 # Project build
-main
+ecs-ip

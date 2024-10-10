@@ -4,6 +4,7 @@ import (
 	"ecs-ip/internal/aws"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/gofiber/fiber/v2"
@@ -31,7 +32,12 @@ func NewServer(region string, password string) *FiberServer {
 	}))
 
 	server.Get("/", func(c *fiber.Ctx) error {
-		clusters := aws.NewStore(region).Clusters()
+		regions := strings.Split(region, ",")
+		clusters := []aws.Cluster{}
+		for _, r := range regions {
+			clusters = append(clusters, aws.NewStore(r).Clusters()...)
+		}
+
 		selectedApp := c.Query("app")
 
 		return Render(c, HomePage(filteredByApp(clusters, selectedApp), appSlugs(clusters), selectedApp))
